@@ -73,6 +73,17 @@ This is a Vite single-page application. Configure the host to serve `index.html`
 
 After deployment, set the Supabase **Site URL** to the production origin and add it to **Redirect URLs**. Add preview origins only if users should be able to complete authentication from them. Ensure the publishable key and project URL are configured in the hosting provider's frontend build environment before building.
 
+### Vercel environment variables
+
+Vercel does not upload the ignored `.env.local` file. In **Vercel → Project → Settings → Environment Variables**, add:
+
+- `VITE_SUPABASE_URL` — the Supabase project URL.
+- `VITE_SUPABASE_PUBLISHABLE_KEY` — the public publishable key (or legacy public anon key).
+
+Enable the variables for every Vercel environment you use (at least **Production**, and **Preview** if testing preview deployments), then redeploy so Vite can embed them during the build. Do not add `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_SECRET_KEY`, or `SUPABASE_JWT_SECRET` to the frontend project's environment variables.
+
+For a Vite project, verify the Vercel project uses the repository root, build command `npm run build`, and output directory `dist`. If the configuration error remains after redeploying, check that the browser URL belongs to the project/environment where those variables were set and that the deployment was built after the variables were added.
+
 ## Application structure and React concepts
 
 - `src/components/` contains the reusable Navbar, Sidebar, NoteCard, NoteForm, SearchBar, authentication screen, protected-route boundary, and delete confirmation dialog. Components receive note data and callbacks through props.
