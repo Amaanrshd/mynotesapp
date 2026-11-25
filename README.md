@@ -62,13 +62,7 @@ Vitest and React Testing Library cover note form validation, sign-up/sign-in and
 This is a Vite single-page application. Configure the host to serve `index.html` for unknown application paths so a direct browser request or refresh at `/notes/new` and `/notes/:id/edit` reaches React Router:
 
 - **Netlify:** add a `_redirects` file to the published output containing `/* /index.html 200`.
-- **Vercel:** configure a rewrite from application paths to `/index.html`; for example, add this to `vercel.json`:
-
-  ```json
-  {
-    "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
-  }
-  ```
+- **Vercel:** the repository includes [`vercel.json`](./vercel.json), which rewrites application routes to `/index.html`.
 - **Other static hosts:** enable the equivalent SPA fallback/rewrite; do not redirect the browser to a missing physical `.html` file.
 
 After deployment, set the Supabase **Site URL** to the production origin and add it to **Redirect URLs**. Add preview origins only if users should be able to complete authentication from them. Ensure the publishable key and project URL are configured in the hosting provider's frontend build environment before building.
