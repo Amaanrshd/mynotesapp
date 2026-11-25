@@ -1,11 +1,17 @@
 import { BookOpen, LayoutDashboard, Plus } from "lucide-react";
-import { NavLink, Link } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 
 export default function Sidebar() {
+  const location = useLocation();
+  const dashboardPath =
+    location.pathname === "/"
+      ? `${location.pathname}${location.search}`
+      : location.state?.returnTo ?? "/";
+
   return (
     <aside className="sticky top-0 flex h-screen w-[72px] shrink-0 flex-col border-r border-slate-200 bg-white px-2 py-5 sm:w-60 sm:px-5 sm:py-7">
       <Link
-        to="/"
+        to={dashboardPath}
         aria-label="My Notes home"
         className="mb-9 flex items-center justify-center gap-2.5 rounded-lg text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 sm:justify-start"
       >
@@ -19,6 +25,7 @@ export default function Sidebar() {
 
       <Link
         to="/notes/new"
+        state={{ returnTo: dashboardPath }}
         aria-label="Add new note"
         title="Add new note"
         className="mb-7 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 sm:justify-start sm:px-3.5"
@@ -29,7 +36,7 @@ export default function Sidebar() {
 
       <nav aria-label="Main navigation">
         <NavLink
-          to="/"
+          to={dashboardPath}
           end
           aria-label="My Notes dashboard"
           title="My Notes"

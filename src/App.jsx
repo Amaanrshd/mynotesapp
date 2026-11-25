@@ -1,6 +1,7 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AuthScreen from "./components/AuthScreen.jsx";
 import Navbar from "./components/Navbar.jsx";
+import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 import CreateNote from "./pages/CreateNote.jsx";
@@ -10,30 +11,32 @@ import EditNote from "./pages/EditNote.jsx";
 export default function App() {
   return (
     <Routes>
-      <Route
-        path="/"
-        element={
-          <ApplicationLayout>
-            <Dashboard />
-          </ApplicationLayout>
-        }
-      />
-      <Route
-        path="/notes/new"
-        element={
-          <ApplicationLayout>
-            <CreateNote />
-          </ApplicationLayout>
-        }
-      />
-      <Route
-        path="/notes/:id/edit"
-        element={
-          <ApplicationLayout>
-            <EditNote />
-          </ApplicationLayout>
-        }
-      />
+      <Route element={<ProtectedRoute />}>
+        <Route
+          path="/"
+          element={
+            <ApplicationLayout>
+              <Dashboard />
+            </ApplicationLayout>
+          }
+        />
+        <Route
+          path="/notes/new"
+          element={
+            <ApplicationLayout>
+              <CreateNote />
+            </ApplicationLayout>
+          }
+        />
+        <Route
+          path="/notes/:id/edit"
+          element={
+            <ApplicationLayout>
+              <EditNote />
+            </ApplicationLayout>
+          }
+        />
+      </Route>
       <Route path="/auth" element={<AuthRoute />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -41,8 +44,29 @@ export default function App() {
 }
 
 function AuthRoute() {
-  const { session } = useAuth();
-  return session ? <Navigate to="/" replace /> : <AuthScreen />;
+  const { session, loading } = useAuth();
+  const location = useLocation();
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <p role="status" className="text-sm text-slate-600">
+          Checking your session...
+        </p>
+      </main>
+    );
+  }
+  if (!session) return <AuthScreen />;
+
+  const from = location.state?.from;
+  const destination =
+    typeof from?.pathname === "string"
+      ? {
+          pathname: from.pathname,
+          search: from.search ?? "",
+          hash: from.hash ?? "",
+        }
+      : "/";
+  return <Navigate to={destination} replace state={from?.state} />;
 }
 
 function ApplicationLayout({ children }) {

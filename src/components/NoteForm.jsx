@@ -7,6 +7,7 @@ export default function NoteForm({
   initialTitle = "",
   initialDescription = "",
   submitLabel = "Save Note",
+  cancelTo = "/",
   isSaving = false,
   isCheckingSession = false,
 }) {
@@ -159,7 +160,7 @@ export default function NoteForm({
 
       <div className="mt-7 flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
         <Link
-          to="/"
+          to={cancelTo}
           aria-disabled={busy}
           onClick={(event) => {
             if (busy) event.preventDefault();

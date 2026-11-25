@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { BookOpen } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabase.js";
+import { useAuth } from "../context/AuthContext.jsx";
+import { supabase, supabaseConfigError } from "../lib/supabase.js";
 
 export default function AuthScreen() {
   const [mode, setMode] = useState("sign-in");
@@ -12,18 +13,29 @@ export default function AuthScreen() {
   const [notice, setNotice] = useState("");
   const location = useLocation();
   const navigate = useNavigate();
+  const { sessionError } = useAuth();
   const isSignUp = mode === "sign-up";
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setErrorMessage("");
     setNotice("");
 
     try {
+      if (!supabase) throw new Error(supabaseConfigError);
+      const normalizedEmail = email.trim();
       const result = isSignUp
-        ? await supabase.auth.signUp({ email, password })
-        : await supabase.auth.signInWithPassword({ email, password });
+        ? await supabase.auth.signUp({
+            email: normalizedEmail,
+            password,
+            options: { emailRedirectTo: window.location.origin },
+          })
+        : await supabase.auth.signInWithPassword({
+            email: normalizedEmail,
+            password,
+          });
 
       if (result.error) {
         setErrorMessage(result.error.message);
@@ -31,8 +43,18 @@ export default function AuthScreen() {
         setNotice(
           "Account created. Check your email for a confirmation link, then sign in.",
         );
+      } else if (!result.data.session) {
+        setErrorMessage("Sign-in completed without an active session. Please try again.");
       } else {
-        navigate(location.state?.from?.pathname ?? "/", { replace: true });
+        const from = location.state?.from;
+        const destination =
+          typeof from?.pathname === "string"
+            ? `${from.pathname}${from.search ?? ""}${from.hash ?? ""}`
+            : "/";
+        navigate(destination, {
+          replace: true,
+          state: from?.state,
+        });
       }
     } catch (error) {
       setErrorMessage(
@@ -75,6 +97,17 @@ export default function AuthScreen() {
             : "Sign in to access your notes."}
         </p>
 
+        {sessionError && (
+          <p role="alert" className="mt-4 text-sm leading-6 text-rose-700">
+            Unable to check your current session: {sessionError}
+          </p>
+        )}
+        {!supabase && (
+          <p role="alert" className="mt-4 text-sm leading-6 text-rose-700">
+            {supabaseConfigError}
+          </p>
+        )}
+
         <form onSubmit={handleSubmit} className="mt-7 space-y-5">
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">
@@ -87,7 +120,7 @@ export default function AuthScreen() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-100"
             />
           </label>
 
@@ -99,10 +132,11 @@ export default function AuthScreen() {
               type="password"
               name="password"
               autoComplete={isSignUp ? "new-password" : "current-password"}
+              minLength={isSignUp ? 6 : undefined}
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus-visible:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-100"
             />
           </label>
 
@@ -119,8 +153,8 @@ export default function AuthScreen() {
 
           <button
             type="submit"
-            disabled={busy}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={busy || !supabase}
+            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy
               ? "Please wait..."
@@ -135,7 +169,7 @@ export default function AuthScreen() {
           <button
             type="button"
             onClick={() => changeMode(isSignUp ? "sign-in" : "sign-up")}
-            className="font-medium text-indigo-700 hover:text-indigo-900"
+            className="rounded-sm font-medium text-indigo-700 hover:text-indigo-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
           >
             {isSignUp ? "Sign in" : "Create an account"}
           </button>

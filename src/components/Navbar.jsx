@@ -7,14 +7,17 @@ import { supabase } from "../lib/supabase.js";
 export default function Navbar() {
   const { user } = useAuth();
   const [signOutError, setSignOutError] = useState("");
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   async function handleSignOut() {
+    if (isSigningOut) return;
     if (!supabase) {
       setSignOutError("Sign out is unavailable because Supabase is not configured.");
       return;
     }
 
     setSignOutError("");
+    setIsSigningOut(true);
     try {
       const { error } = await supabase.auth.signOut();
       if (error) setSignOutError(error.message);
@@ -22,6 +25,8 @@ export default function Navbar() {
       setSignOutError(
         error instanceof Error ? error.message : "Unable to sign out.",
       );
+    } finally {
+      setIsSigningOut(false);
     }
   }
 
@@ -42,10 +47,13 @@ export default function Navbar() {
             onClick={handleSignOut}
             aria-label="Sign out"
             title="Sign out"
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+            disabled={isSigningOut}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <LogOut size={16} aria-hidden="true" />
-            <span className="hidden sm:inline">Sign out</span>
+            <span className="hidden sm:inline">
+              {isSigningOut ? "Signing out..." : "Sign out"}
+            </span>
           </button>
         ) : (
           <Link

@@ -1,4 +1,12 @@
-import { CalendarDays, FileText, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import {
+  CalendarDays,
+  FileText,
+  LoaderCircle,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+} from "lucide-react";
 
 const cardTones = [
   "border-sky-100 bg-sky-50",
@@ -39,13 +47,16 @@ export default function NoteCard({
   onEdit,
   onDelete,
   onTogglePin,
-  busy = false,
+  isPinning = false,
+  isDeleting = false,
 }) {
   const toneIndex = getToneIndex(note.id);
 
   return (
     <article
-      className={`flex min-h-56 flex-col rounded-2xl border p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${cardTones[toneIndex]}`}
+      className={`flex min-h-56 flex-col rounded-2xl border p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${cardTones[toneIndex]} ${
+        note.is_pinned ? "border-indigo-200 ring-1 ring-indigo-200" : ""
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <span
@@ -54,8 +65,8 @@ export default function NoteCard({
           <FileText size={19} aria-hidden="true" />
         </span>
         <span
-          className={`inline-flex items-center gap-1.5 rounded-full bg-white/75 px-2.5 py-1 text-xs font-medium ${
-            note.is_pinned ? "text-indigo-700" : "text-slate-500"
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+            note.is_pinned ? "bg-indigo-100 text-indigo-800" : "bg-white/75 text-slate-500"
           }`}
         >
           {note.is_pinned ? (
@@ -85,19 +96,36 @@ export default function NoteCard({
           aria-label={`Edit ${note.title}`}
           title="Edit note"
           className="inline-flex size-9 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white/70 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={busy}
+          disabled={isDeleting}
         >
           <Pencil size={16} aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => onTogglePin(note)}
-          aria-label={`${note.is_pinned ? "Unpin" : "Pin"} ${note.title}`}
-          title={note.is_pinned ? "Unpin note" : "Pin note"}
+          aria-label={`${
+            isPinning
+              ? note.is_pinned
+                ? "Unpinning note"
+                : "Pinning note"
+              : note.is_pinned
+                ? "Unpin note"
+                : "Pin note"
+          }: ${note.title}`}
+          aria-busy={isPinning}
+          title={
+            isPinning
+              ? "Saving pin status"
+              : note.is_pinned
+                ? "Unpin note"
+                : "Pin note"
+          }
           className="inline-flex size-9 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white/70 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={busy}
+          disabled={isPinning || isDeleting}
         >
-          {note.is_pinned ? (
+          {isPinning ? (
+            <LoaderCircle size={16} aria-hidden="true" className="animate-spin" />
+          ) : note.is_pinned ? (
             <PinOff size={16} aria-hidden="true" />
           ) : (
             <Pin size={16} aria-hidden="true" />
@@ -109,7 +137,7 @@ export default function NoteCard({
           aria-label={`Delete ${note.title}`}
           title="Delete note"
           className="inline-flex size-9 items-center justify-center rounded-lg text-slate-600 transition hover:bg-rose-100 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={busy}
+          disabled={isPinning || isDeleting}
         >
           <Trash2 size={16} aria-hidden="true" />
         </button>

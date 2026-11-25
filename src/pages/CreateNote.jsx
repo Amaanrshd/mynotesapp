@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import NoteForm from "../components/NoteForm.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { createGuestNote } from "../lib/guestNotes.js";
 import { supabase, supabaseConfigError } from "../lib/supabase.js";
 
 function messageFromError(error) {
@@ -15,6 +14,7 @@ export default function CreateNote() {
   const { user, loading: authLoading, sessionError } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const location = useLocation();
   const navigate = useNavigate();
   const isMounted = useRef(false);
   const activeUserId = useRef(user?.id ?? null);
@@ -37,39 +37,39 @@ export default function CreateNote() {
       setError("Please wait while your sign-in session is checked.");
       return;
     }
-    const requestUserId = user?.id ?? null;
+    if (!user) {
+      setError("Sign in to create a note.");
+      return;
+    }
+    const requestUserId = user.id;
     submissionInProgress.current = true;
     setIsSaving(true);
     try {
-      if (!user) {
-        createGuestNote({ title, description });
-      } else {
-        if (sessionError) {
-          throw new Error(`Unable to check your sign-in session: ${sessionError}`);
-        }
-        if (!supabase) throw new Error(supabaseConfigError);
+      if (sessionError) {
+        throw new Error(`Unable to check your sign-in session: ${sessionError}`);
+      }
+      if (!supabase) throw new Error(supabaseConfigError);
 
-        const { data, error: insertError } = await supabase
-          .from("notes")
-          .insert({
-            title,
-            description,
-            user_id: requestUserId,
-          })
-          .select("id")
-          .single();
+      const { data, error: insertError } = await supabase
+        .from("notes")
+        .insert({
+          title,
+          description,
+          user_id: requestUserId,
+        })
+        .select("id, user_id")
+        .single();
 
-        if (insertError) throw insertError;
-        if (!data?.id) {
-          throw new Error("Supabase did not confirm that the note was created.");
-        }
+      if (insertError) throw insertError;
+      if (!data?.id || data.user_id !== requestUserId) {
+        throw new Error("Supabase did not confirm that the note was created.");
       }
 
       if (
         isMounted.current &&
         activeUserId.current === requestUserId
       ) {
-        navigate("/", { replace: true });
+        navigate(location.state?.returnTo ?? "/", { replace: true });
       }
     } catch (insertError) {
       if (
@@ -87,7 +87,7 @@ export default function CreateNote() {
   return (
     <div className="mx-auto max-w-4xl">
       <Link
-        to="/"
+        to={location.state?.returnTo ?? "/"}
         className="inline-flex rounded-sm text-sm font-medium text-indigo-700 transition hover:text-indigo-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
       >
         Back to dashboard
@@ -104,6 +104,7 @@ export default function CreateNote() {
       <NoteForm
         onSubmit={saveNote}
         error={error}
+        cancelTo={location.state?.returnTo ?? "/"}
         isSaving={isSaving}
         isCheckingSession={authLoading}
       />

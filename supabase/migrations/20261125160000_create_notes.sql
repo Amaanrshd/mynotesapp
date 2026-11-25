@@ -11,7 +11,7 @@ create table public.notes (
 );
 
 create index notes_user_pinned_created_at_idx
-  on public.notes (user_id, is_pinned desc, created_at desc);
+  on public.notes (user_id, is_pinned desc, created_at desc, id desc);
 
 create or replace function public.set_notes_updated_at()
 returns trigger
@@ -32,6 +32,7 @@ execute function public.set_notes_updated_at();
 alter table public.notes enable row level security;
 
 revoke all on table public.notes from anon, public;
+grant usage on schema public to authenticated;
 grant select, insert, update, delete on table public.notes to authenticated;
 
 create policy "Users can read their own notes"

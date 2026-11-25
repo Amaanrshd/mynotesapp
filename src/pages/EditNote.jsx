@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import NoteForm from "../components/NoteForm.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { readGuestNotes, updateGuestNote } from "../lib/guestNotes.js";
 import { supabase, supabaseConfigError } from "../lib/supabase.js";
 
 const noteColumns =
@@ -22,9 +21,11 @@ export default function EditNote() {
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const location = useLocation();
   const navigate = useNavigate();
   const isMounted = useRef(false);
   const activeUserId = useRef(user?.id ?? null);
+  const submissionInProgress = useRef(false);
 
   activeUserId.current = user?.id ?? null;
 
@@ -48,20 +49,8 @@ export default function EditNote() {
     }
 
     if (!user) {
-      try {
-        const guestNote = readGuestNotes().find((item) => item.id === id);
-        if (!guestNote) {
-          setLoadError(
-            "This guest note was not found in this browser. Guest notes are not synced across devices.",
-          );
-        } else {
-          setNote(guestNote);
-        }
-      } catch (error) {
-        setLoadError(`Could not load this guest note. ${messageFromError(error)}`);
-      } finally {
-        setLoading(false);
-      }
+      setLoading(false);
+      setLoadError("Sign in to edit your notes.");
       return () => {
         isCurrentRequest = false;
       };
@@ -117,38 +106,43 @@ export default function EditNote() {
   async function saveNote({ title, description }) {
     setSaveError("");
     if (!note) return;
+    if (submissionInProgress.current) return;
+    if (!user) {
+      setSaveError("Sign in to save changes to your note.");
+      return;
+    }
 
-    const requestUserId = user?.id ?? null;
+    const requestUserId = user.id;
+    submissionInProgress.current = true;
     setIsSaving(true);
     try {
-      if (!user) {
-        updateGuestNote(id, { title, description });
-      } else {
-        if (sessionError) {
-          throw new Error(`Unable to check your sign-in session: ${sessionError}`);
-        }
-        if (!supabase) throw new Error(supabaseConfigError);
+      if (sessionError) {
+        throw new Error(`Unable to check your sign-in session: ${sessionError}`);
+      }
+      if (!supabase) throw new Error(supabaseConfigError);
 
-        const { data, error } = await supabase
-          .from("notes")
-          .update({ title, description })
-          .eq("id", id)
-          .eq("user_id", requestUserId)
-          .select(noteColumns)
-          .single();
+      const { data, error } = await supabase
+        .from("notes")
+        .update({ title, description })
+        .eq("id", id)
+        .eq("user_id", requestUserId)
+        .select(noteColumns)
+        .single();
 
-        if (error) throw error;
-        if (!data) throw new Error("Supabase did not confirm the note update.");
+      if (error) throw error;
+      if (!data || data.id !== id || data.user_id !== requestUserId) {
+        throw new Error("Supabase did not confirm the note update.");
       }
 
       if (isMounted.current && activeUserId.current === requestUserId) {
-        navigate("/", { replace: true });
+        navigate(location.state?.returnTo ?? "/", { replace: true });
       }
     } catch (error) {
       if (isMounted.current && activeUserId.current === requestUserId) {
         setSaveError(`Could not save your changes. ${messageFromError(error)}`);
       }
     } finally {
+      submissionInProgress.current = false;
       if (isMounted.current) setIsSaving(false);
     }
   }
@@ -156,7 +150,7 @@ export default function EditNote() {
   return (
     <div className="mx-auto max-w-4xl">
       <Link
-        to="/"
+        to={location.state?.returnTo ?? "/"}
         className="inline-flex rounded-sm text-sm font-medium text-indigo-700 transition hover:text-indigo-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
       >
         Back to dashboard
@@ -188,6 +182,7 @@ export default function EditNote() {
           onSubmit={saveNote}
           error={saveError}
           isSaving={isSaving}
+          cancelTo={location.state?.returnTo ?? "/"}
         />
       ) : null}
     </div>

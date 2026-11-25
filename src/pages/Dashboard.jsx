@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { ArrowRight, Pin } from "lucide-react";
 import ConfirmDeleteDialog from "../components/ConfirmDeleteDialog.jsx";
 import NoteCard from "../components/NoteCard.jsx";
 import SearchBar from "../components/SearchBar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import {
-  deleteGuestNote,
-  readGuestNotes,
-  updateGuestNote,
-} from "../lib/guestNotes.js";
 import { supabase, supabaseConfigError } from "../lib/supabase.js";
 
 const noteColumns =
@@ -19,6 +19,10 @@ function messageFromError(error, fallback) {
   return typeof error?.message === "string" && error.message
     ? error.message
     : fallback;
+}
+
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function sortNotes(notes) {
@@ -58,22 +62,21 @@ function LoadingCards() {
   );
 }
 
-function EmptyState({ signedIn }) {
+function EmptyState({ returnTo }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-white/80 px-6 py-12 text-center">
       <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700">
         <Pin size={20} aria-hidden="true" />
       </div>
       <h2 className="mt-4 text-lg font-semibold text-slate-900">
-        {signedIn ? "No notes yet" : "Continue in guest mode"}
+        No notes yet
       </h2>
       <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
-        {signedIn
-          ? "Your notes will appear here. Create one to get started."
-          : "Guest notes are saved only in this browser. They are not sent to Supabase or synced across devices."}
+        Your notes will appear here. Create one to get started.
       </p>
       <Link
         to="/notes/new"
+        state={{ returnTo }}
         className="mt-5 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
       >
         Add New Note <ArrowRight size={16} aria-hidden="true" />
@@ -84,13 +87,20 @@ function EmptyState({ signedIn }) {
 
 export default function Dashboard() {
   const { user, loading: authLoading, sessionError } = useAuth();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialQuery = searchParams.get("q") ?? "";
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
+  const [debouncedSearch, setDebouncedSearch] = useState(() => ({
+    value: initialQuery.trim() ? initialQuery : "",
+    revision: 0,
+  }));
   const [retryCount, setRetryCount] = useState(0);
-  const [busyNoteId, setBusyNoteId] = useState(null);
+  const [pinningNoteIds, setPinningNoteIds] = useState(() => new Set());
   const [noteToDelete, setNoteToDelete] = useState(null);
   const [deleteError, setDeleteError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -98,7 +108,10 @@ export default function Dashboard() {
   const activeUserId = useRef(user?.id ?? null);
   const deleteTriggerRef = useRef(null);
   const deleteInProgress = useRef(false);
+  const pinningNoteIdsRef = useRef(new Set());
   const dashboardHeadingRef = useRef(null);
+  const searchRequestVersion = useRef(0);
+  const activeSearchController = useRef(null);
   const navigate = useNavigate();
 
   activeUserId.current = user?.id ?? null;
@@ -127,60 +140,83 @@ export default function Dashboard() {
   }, [noteToDelete]);
 
   useEffect(() => {
+    const value = query.trim() ? query : "";
+    if (value === debouncedSearch.value) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearch((current) => ({
+        value,
+        revision: current.revision + 1,
+      }));
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [debouncedSearch.value, query]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const requestVersion = ++searchRequestVersion.current;
     let isCurrentRequest = true;
+    activeSearchController.current = controller;
+    const isActive = () =>
+      isCurrentRequest &&
+      requestVersion === searchRequestVersion.current &&
+      !controller.signal.aborted;
+    const cleanupRequest = () => {
+      isCurrentRequest = false;
+      controller.abort();
+      if (activeSearchController.current === controller) {
+        activeSearchController.current = null;
+      }
+    };
+
     setError("");
     setActionError("");
-    setBusyNoteId(null);
-
     if (authLoading) {
       setLoading(true);
-      return () => {
-        isCurrentRequest = false;
-      };
+      return cleanupRequest;
     }
 
     if (!user) {
-      try {
-        setNotes(sortNotes(readGuestNotes()));
-      } catch (readError) {
-        setNotes([]);
-        setError(messageFromError(readError, "Unable to load guest notes."));
-      } finally {
-        setLoading(false);
-      }
-      return () => {
-        isCurrentRequest = false;
-      };
+      setNotes([]);
+      setLoading(false);
+      setError("Sign in to load your personal notes.");
+      return cleanupRequest;
     }
 
     if (sessionError) {
       setNotes([]);
       setLoading(false);
       setError(`Unable to check your sign-in session: ${sessionError}`);
-      return () => {
-        isCurrentRequest = false;
-      };
+      return cleanupRequest;
     }
 
     if (!supabase) {
       setNotes([]);
       setLoading(false);
       setError(supabaseConfigError);
-      return () => {
-        isCurrentRequest = false;
-      };
+      return cleanupRequest;
     }
 
     setLoading(true);
-    supabase
+    let request = supabase
       .from("notes")
       .select(noteColumns)
-      .eq("user_id", user.id)
+      .eq("user_id", user.id);
+    if (debouncedSearch.value) {
+      request = request.ilike(
+        "title",
+        `%${escapeLikePattern(debouncedSearch.value)}%`,
+      );
+    }
+
+    request
       .order("is_pinned", { ascending: false })
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
+      .abortSignal(controller.signal)
       .then(({ data, error: requestError }) => {
-        if (!isCurrentRequest) return;
+        if (!isActive()) return;
         if (requestError) {
           setNotes([]);
           setError(messageFromError(requestError, "Unable to load your notes."));
@@ -189,40 +225,63 @@ export default function Dashboard() {
         setNotes(data ?? []);
       })
       .catch((requestError) => {
-        if (!isCurrentRequest) return;
+        if (!isActive()) return;
         setNotes([]);
         setError(messageFromError(requestError, "Unable to load your notes."));
       })
       .finally(() => {
-        if (isCurrentRequest) setLoading(false);
+        if (isActive()) setLoading(false);
       });
 
-    return () => {
-      isCurrentRequest = false;
-    };
-  }, [authLoading, retryCount, sessionError, user?.id]);
+    return cleanupRequest;
+  }, [
+    authLoading,
+    debouncedSearch.revision,
+    debouncedSearch.value,
+    retryCount,
+    sessionError,
+    user?.id,
+  ]);
 
-  const filteredNotes = useMemo(() => {
-    const searchTerm = query.trim().toLocaleLowerCase();
-    if (!searchTerm) return notes;
+  const pinnedNotes = notes.filter((note) => note.is_pinned);
+  const unpinnedNotes = notes.filter((note) => !note.is_pinned);
 
-    return notes.filter((note) =>
-      `${note.title} ${note.description}`.toLocaleLowerCase().includes(searchTerm),
-    );
-  }, [notes, query]);
-  const pinnedNotes = filteredNotes.filter((note) => note.is_pinned);
-  const unpinnedNotes = filteredNotes.filter((note) => !note.is_pinned);
+  function handleSearchChange(value) {
+    searchRequestVersion.current += 1;
+    activeSearchController.current?.abort();
+    setError("");
+    setQuery(value);
+    const nextParams = new URLSearchParams(location.search);
+    if (value.trim()) nextParams.set("q", value);
+    else nextParams.delete("q");
+    setSearchParams(nextParams, { replace: true });
+    setLoading(true);
+
+    const searchValue = value.trim() ? value : "";
+    if (searchValue === debouncedSearch.value) {
+      setDebouncedSearch((current) => ({
+        ...current,
+        revision: current.revision + 1,
+      }));
+    }
+  }
+
+  function clearSearch() {
+    handleSearchChange("");
+  }
 
   function retryLoading() {
     setRetryCount((count) => count + 1);
   }
 
   function editNote(note) {
-    navigate(`/notes/${note.id}/edit`);
+    navigate(`/notes/${note.id}/edit`, {
+      state: { returnTo: `${location.pathname}${location.search}` },
+    });
   }
 
   function requestDelete(note, trigger) {
-    if (busyNoteId || deleteInProgress.current) return;
+    if (pinningNoteIdsRef.current.has(note.id) || deleteInProgress.current) return;
     deleteTriggerRef.current = trigger;
     setDeleteError("");
     setNoteToDelete(note);
@@ -235,48 +294,40 @@ export default function Dashboard() {
   }
 
   async function togglePinned(note) {
-    if (busyNoteId) return;
-
-    setBusyNoteId(note.id);
+    if (!user || pinningNoteIdsRef.current.has(note.id)) return;
+    const nextPinned = !note.is_pinned;
+    const pendingIds = new Set(pinningNoteIdsRef.current);
+    pendingIds.add(note.id);
+    pinningNoteIdsRef.current = pendingIds;
+    setPinningNoteIds(pendingIds);
     setActionError("");
-    if (!user) {
-      try {
-        const updatedNote = updateGuestNote(note.id, {
-          is_pinned: !note.is_pinned,
-        });
-        setNotes((currentNotes) =>
-          sortNotes(
-            currentNotes.map((current) =>
-              current.id === updatedNote.id ? updatedNote : current,
-            ),
-          ),
-        );
-      } catch (updateError) {
-        setActionError(
-          `Could not update the guest note: ${messageFromError(updateError, "Please try again.")}`,
-        );
-      } finally {
-        setBusyNoteId(null);
-      }
-      return;
-    }
     if (!supabase) {
       setActionError(supabaseConfigError);
-      setBusyNoteId(null);
+      const nextPendingIds = new Set(pinningNoteIdsRef.current);
+      nextPendingIds.delete(note.id);
+      pinningNoteIdsRef.current = nextPendingIds;
+      setPinningNoteIds(nextPendingIds);
       return;
     }
 
     try {
       const { data, error: updateError } = await supabase
         .from("notes")
-        .update({ is_pinned: !note.is_pinned })
+        .update({ is_pinned: nextPinned })
         .eq("id", note.id)
         .eq("user_id", user.id)
         .select(noteColumns)
         .single();
 
       if (updateError) throw updateError;
-      if (!data) throw new Error("Supabase did not return the updated note.");
+      if (
+        !data ||
+        data.id !== note.id ||
+        data.user_id !== user.id ||
+        data.is_pinned !== nextPinned
+      ) {
+        throw new Error("Supabase did not confirm the requested pin update.");
+      }
       if (!isMounted.current || activeUserId.current !== user.id) return;
 
       setNotes((currentNotes) =>
@@ -288,55 +339,55 @@ export default function Dashboard() {
         `Could not update the pin status: ${messageFromError(updateError, "Please try again.")}`,
       );
     } finally {
-      if (isMounted.current && activeUserId.current === user.id) {
-        setBusyNoteId(null);
+      const nextPendingIds = new Set(pinningNoteIdsRef.current);
+      nextPendingIds.delete(note.id);
+      pinningNoteIdsRef.current = nextPendingIds;
+      if (isMounted.current) {
+        setPinningNoteIds(nextPendingIds);
       }
     }
   }
 
   async function confirmDelete() {
     const note = noteToDelete;
-    if (!note || busyNoteId || deleteInProgress.current) return;
+    if (
+      !note ||
+      pinningNoteIdsRef.current.has(note.id) ||
+      deleteInProgress.current
+    ) {
+      return;
+    }
 
     deleteInProgress.current = true;
-    const requestUserId = user?.id ?? null;
     setIsDeleting(true);
-    setBusyNoteId(note.id);
     setDeleteError("");
     try {
-      if (!user) {
-        const deletedNote = deleteGuestNote(note.id);
-        if (!isMounted.current) return;
-        setNotes((currentNotes) =>
-          currentNotes.filter((current) => current.id !== deletedNote.id),
-        );
-      } else {
-        if (!supabase) throw new Error(supabaseConfigError);
+      if (!user) throw new Error("Sign in to delete your notes.");
+      if (!supabase) throw new Error(supabaseConfigError);
 
-        const { data, error: deleteError } = await supabase
-          .from("notes")
-          .delete()
-          .eq("id", note.id)
-          .eq("user_id", user.id)
-          .select("id")
-          .single();
+      const { data, error: deleteError } = await supabase
+        .from("notes")
+        .delete()
+        .eq("id", note.id)
+        .eq("user_id", user.id)
+        .select("id")
+        .single();
 
-        if (deleteError) throw deleteError;
-        if (!data || data.id !== note.id) {
-          throw new Error("Supabase did not confirm deletion of this note.");
-        }
-        if (!isMounted.current || activeUserId.current !== requestUserId) return;
-
-        setNotes((currentNotes) =>
-          currentNotes.filter((current) => current.id !== data.id),
-        );
+      if (deleteError) throw deleteError;
+      if (!data || data.id !== note.id) {
+        throw new Error("Supabase did not confirm deletion of this note.");
       }
+      if (!isMounted.current || activeUserId.current !== user.id) return;
 
-      if (isMounted.current && activeUserId.current === requestUserId) {
+      setNotes((currentNotes) =>
+        currentNotes.filter((current) => current.id !== data.id),
+      );
+
+      if (isMounted.current && activeUserId.current === user.id) {
         setNoteToDelete(null);
       }
     } catch (deleteError) {
-      if (isMounted.current && activeUserId.current === requestUserId) {
+      if (isMounted.current && activeUserId.current === user?.id) {
         setDeleteError(
           `Could not delete "${note.title}". ${messageFromError(deleteError, "Please try again.")}`,
         );
@@ -345,7 +396,6 @@ export default function Dashboard() {
       deleteInProgress.current = false;
       if (isMounted.current) {
         setIsDeleting(false);
-        setBusyNoteId(null);
       }
     }
   }
@@ -368,7 +418,9 @@ export default function Dashboard() {
         </div>
         <SearchBar
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={handleSearchChange}
+          onClear={clearSearch}
+          isLoading={loading}
         />
       </div>
 
@@ -403,9 +455,25 @@ export default function Dashboard() {
         <div className="mt-8">
           <LoadingCards />
         </div>
+      ) : !error && notes.length === 0 && debouncedSearch.value ? (
+        <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white/80 px-6 py-12 text-center">
+          <h2 className="text-lg font-semibold text-slate-900">
+            No notes found for this search
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Try a different title or clear your search to see all notes.
+          </p>
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="mt-5 inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+          >
+            Clear search
+          </button>
+        </div>
       ) : !error && notes.length === 0 ? (
         <div className="mt-8">
-          <EmptyState signedIn={Boolean(user)} />
+          <EmptyState returnTo={`${location.pathname}${location.search}`} />
         </div>
       ) : !error ? (
         <>
@@ -442,7 +510,8 @@ export default function Dashboard() {
                     onEdit={editNote}
                     onDelete={requestDelete}
                     onTogglePin={togglePinned}
-                    busy={Boolean(busyNoteId)}
+                    isPinning={pinningNoteIds.has(note.id)}
+                    isDeleting={isDeleting && noteToDelete?.id === note.id}
                   />
                 ))}
               </div>
@@ -479,7 +548,8 @@ export default function Dashboard() {
                     onEdit={editNote}
                     onDelete={requestDelete}
                     onTogglePin={togglePinned}
-                    busy={Boolean(busyNoteId)}
+                    isPinning={pinningNoteIds.has(note.id)}
+                    isDeleting={isDeleting && noteToDelete?.id === note.id}
                   />
                 ))}
               </div>
@@ -492,18 +562,6 @@ export default function Dashboard() {
             )}
           </section>
 
-          {filteredNotes.length === 0 && (
-            <div className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white/70 p-6 text-center">
-              <p className="font-medium text-slate-800">No notes match your search</p>
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                className="mt-2 rounded-sm text-sm font-semibold text-indigo-700 hover:text-indigo-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
-              >
-                Clear search
-              </button>
-            </div>
-          )}
         </>
       ) : null}
       {noteToDelete && (
