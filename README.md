@@ -1,6 +1,6 @@
 # My Notes
 
-A responsive personal-notes application built with React, Vite, Tailwind CSS, React Router, and Supabase. All note reads and mutations require an authenticated user and use the `public.notes` table; there is no guest/localStorage notes backend.
+A responsive personal-notes application built with React, Vite, Tailwind CSS, React Router, and Supabase. Notes use the `public.notes` table and are scoped by the current Supabase user. Users can choose email/password authentication or continue with a Supabase anonymous guest session; there is no guest/localStorage notes backend.
 
 Browser-only guest notes created by an earlier version are not automatically imported or deleted. This version no longer reads that local data.
 
@@ -32,12 +32,12 @@ Restart Vite after changing environment variables. If either required value is m
 
 1. Create a Supabase project.
 2. In the Supabase SQL Editor, run [`supabase/migrations/20261125160000_create_notes.sql`](./supabase/migrations/20261125160000_create_notes.sql). It creates the notes table, blank-text constraints, timestamp trigger, owner-scoped indexes, grants, RLS, and separate authenticated CRUD policies. The migration is in this repository; it has **not** been applied to any remote project by this application.
-3. In **Authentication → Providers**, enable Email/password authentication.
+3. In **Authentication → Sign In / Providers**, enable **Anonymous Sign-Ins** for guest access. Enable Email/password authentication too if you want account sign-in and sign-up.
 4. Keep email confirmation enabled unless your project has a deliberate, reviewed reason to change it. Configure a working SMTP provider if you need reliable production delivery. Sign-up displays a confirmation notice when Supabase does not return a session.
 5. In **Authentication → URL Configuration**, set the Site URL to your local app origin (for example `http://localhost:5173`) and allow that origin in Redirect URLs. Add the exact production origin (and any preview origins you use) after deployment. The sign-up flow requests a confirmation redirect to the current app origin.
 6. Confirm the table has RLS enabled and the four owner policies from the migration. Do not add an `anon` policy for personal notes.
 
-The client filters queries by `user_id` as defense in depth. Row Level Security is the actual authorization boundary and must be enabled in the database.
+The client filters queries by `user_id` as defense in depth. Row Level Security is the actual authorization boundary and must be enabled in the database. Supabase anonymous users have an authenticated session and receive only rows whose `user_id` matches their own user ID.
 
 ## Run
 
@@ -45,7 +45,7 @@ The client filters queries by `user_id` as defense in depth. Row Level Security 
 npm run dev
 ```
 
-Vite prints the local URL (usually `http://localhost:5173`). The app starts at the sign-in page for signed-out visitors. After successful authentication, the Dashboard, Create Note, and Edit Note routes are protected.
+Vite prints the local URL (usually `http://localhost:5173`). Signed-out visitors can choose email/password sign-in or **Continue as guest**. The Dashboard, Create Note, and Edit Note routes require a Supabase session. Guest notes persist for that anonymous account in the current browser, but are not recoverable after signing out or clearing browser data.
 
 ## Test and build
 
@@ -55,7 +55,7 @@ npm run build
 npm run preview
 ```
 
-Vitest and React Testing Library cover note form validation, sign-up/sign-in and sign-out calls, protected-route behavior, delete cancellation, failed pin/delete mutations, owner-scoped note requests, pin/unpin grouping and refresh loading, and search escaping/stale-response races. Supabase is mocked at the client boundary; these tests do not contact a Supabase project.
+Vitest and React Testing Library cover note form validation, sign-up/sign-in, anonymous guest access and sign-out calls, protected-route behavior, delete cancellation, failed pin/delete mutations, owner-scoped note requests, pin/unpin grouping and refresh loading, and search escaping/stale-response races. Supabase is mocked at the client boundary; these tests do not contact a Supabase project.
 
 ## Hosting
 
@@ -91,7 +91,7 @@ For a Vite project, verify the Vercel project uses the repository root, build co
 
 ## Requirements completion checklist
 
-- [x] Email/password sign-up, sign-in, sign-out, session loading, and protected note routes are implemented.
+- [x] Optional email/password sign-up/sign-in and anonymous guest access, sign-out, session loading, and protected note routes are implemented.
 - [x] Note requests are scoped to the current user; database RLS policies enforce ownership independently.
 - [x] Create, fetch, edit, pin/unpin, and delete use the configured Supabase client.
 - [x] The form rejects blank and whitespace-only titles/descriptions; the migration enforces this at the database level too.
@@ -109,7 +109,7 @@ For a Vite project, verify the Vercel project uses the repository root, build co
 
 ## Manual end-to-end checklist
 
-- [ ] Configure `.env.local`, apply the SQL migration, enable Email auth, and allow the local redirect URL.
+- [ ] Configure `.env.local`, apply the SQL migration, enable Anonymous Sign-Ins (and Email auth if desired), and allow the local redirect URL.
 - [ ] Create an account with email confirmation enabled; confirm the email and sign in. Also test a bad password and a failed/network sign-in.
 - [ ] Sign out and confirm `/`, `/notes/new`, and `/notes/<id>/edit` redirect to sign-in; sign in and confirm the requested route is restored.
 - [ ] Create a note with normal text, then try blank and whitespace-only title/description values.

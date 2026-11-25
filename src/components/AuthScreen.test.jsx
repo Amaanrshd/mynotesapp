@@ -4,10 +4,16 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AuthScreen from "./AuthScreen.jsx";
 
-const { mockUseAuth, mockSignIn, mockSignUp } = vi.hoisted(() => ({
+const {
+  mockUseAuth,
+  mockSignIn,
+  mockSignUp,
+  mockSignInAnonymously,
+} = vi.hoisted(() => ({
   mockUseAuth: vi.fn(),
   mockSignIn: vi.fn(),
   mockSignUp: vi.fn(),
+  mockSignInAnonymously: vi.fn(),
 }));
 
 vi.mock("../context/AuthContext.jsx", () => ({
@@ -19,6 +25,7 @@ vi.mock("../lib/supabase.js", () => ({
     auth: {
       signInWithPassword: mockSignIn,
       signUp: mockSignUp,
+      signInAnonymously: mockSignInAnonymously,
     },
   },
   supabaseConfigError: "Supabase is not configured.",
@@ -28,6 +35,10 @@ beforeEach(() => {
   mockUseAuth.mockReturnValue({ sessionError: "" });
   mockSignIn.mockResolvedValue({ data: { session: {} }, error: null });
   mockSignUp.mockResolvedValue({ data: { session: null }, error: null });
+  mockSignInAnonymously.mockResolvedValue({
+    data: { session: {} },
+    error: null,
+  });
 });
 
 describe("AuthScreen", () => {
@@ -90,6 +101,38 @@ describe("AuthScreen", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Invalid login credentials",
+    );
+  });
+
+  it("starts a Supabase anonymous session when continuing as a guest", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <AuthScreen />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue as guest" }));
+
+    expect(mockSignInAnonymously).toHaveBeenCalledOnce();
+  });
+
+  it("explains that Supabase anonymous sign-ins must be enabled", async () => {
+    const user = userEvent.setup();
+    mockSignInAnonymously.mockResolvedValue({
+      data: { session: null },
+      error: { message: "Anonymous sign-ins are disabled" },
+    });
+    render(
+      <MemoryRouter>
+        <AuthScreen />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue as guest" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Make sure Anonymous Sign-Ins are enabled",
     );
   });
 });

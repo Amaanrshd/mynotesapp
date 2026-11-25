@@ -16,6 +16,18 @@ export default function AuthScreen() {
   const { sessionError } = useAuth();
   const isSignUp = mode === "sign-up";
 
+  function navigateAfterAuthentication() {
+    const from = location.state?.from;
+    const destination =
+      typeof from?.pathname === "string"
+        ? `${from.pathname}${from.search ?? ""}${from.hash ?? ""}`
+        : "/";
+    navigate(destination, {
+      replace: true,
+      state: from?.state,
+    });
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     if (busy) return;
@@ -46,21 +58,44 @@ export default function AuthScreen() {
       } else if (!result.data.session) {
         setErrorMessage("Sign-in completed without an active session. Please try again.");
       } else {
-        const from = location.state?.from;
-        const destination =
-          typeof from?.pathname === "string"
-            ? `${from.pathname}${from.search ?? ""}${from.hash ?? ""}`
-            : "/";
-        navigate(destination, {
-          replace: true,
-          state: from?.state,
-        });
+        navigateAfterAuthentication();
       }
     } catch (error) {
       setErrorMessage(
         error instanceof Error
           ? error.message
           : "Authentication could not be completed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleContinueAsGuest() {
+    if (busy) return;
+    setBusy(true);
+    setErrorMessage("");
+    setNotice("");
+
+    try {
+      if (!supabase) throw new Error(supabaseConfigError);
+      const { data, error } = await supabase.auth.signInAnonymously();
+      if (error) {
+        setErrorMessage(
+          `Guest access could not be started: ${error.message}. Make sure Anonymous Sign-Ins are enabled in Supabase Authentication settings.`,
+        );
+      } else if (!data.session) {
+        setErrorMessage(
+          "Guest access completed without an active session. Please try again.",
+        );
+      } else {
+        navigateAfterAuthentication();
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Guest access could not be started.",
       );
     } finally {
       setBusy(false);
@@ -163,6 +198,21 @@ export default function AuthScreen() {
                 : "Sign in"}
           </button>
         </form>
+
+        <div className="mt-5 border-t border-slate-200 pt-5">
+          <button
+            type="button"
+            onClick={handleContinueAsGuest}
+            disabled={busy || !supabase}
+            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? "Please wait..." : "Continue as guest"}
+          </button>
+          <p className="mt-2 text-center text-xs leading-5 text-slate-500">
+            Guest notes stay in this browser account. Sign out or clearing
+            browser data can make them unrecoverable.
+          </p>
+        </div>
 
         <p className="mt-6 text-center text-sm text-slate-600">
           {isSignUp ? "Already have an account?" : "New to My Notes?"}{" "}
